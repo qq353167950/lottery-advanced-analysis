@@ -2,6 +2,7 @@ name: daily-lottery-recommend
 
 on:
   schedule:
+    # 08:30 Asia/Shanghai. GitHub cron uses UTC.
     - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
@@ -9,16 +10,12 @@ on:
         description: 'auto 或 DLT / SSQ / DLT,SSQ'
         required: false
         default: 'auto'
-      mode:
-        description: 'package=完整包；single=5注单式；multi=复式预算；mixed=混合预算'
-        required: false
-        default: 'package'
-      bets:
-        description: '单式注数，默认5；仅 single 模式使用'
+      single_bets:
+        description: '单式注数，默认5'
         required: false
         default: '5'
-      budget:
-        description: '总预算（元），默认20'
+      multi_budget:
+        description: '2组复式总预算上限（元），默认20'
         required: false
         default: '20'
       mc:
@@ -51,15 +48,17 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             GAMES='${{ github.event.inputs.games }}'
-            MODE='${{ github.event.inputs.mode }}'
-            BETS='${{ github.event.inputs.bets }}'
-            BUDGET='${{ github.event.inputs.budget }}'
+            SINGLE_BETS='${{ github.event.inputs.single_bets }}'
+            MULTI_BUDGET='${{ github.event.inputs.multi_budget }}'
             MC='${{ github.event.inputs.mc }}'
           else
             GAMES='auto'
-            MODE='package'
-            BETS='5'
-            BUDGET='20'
+            SINGLE_BETS='5'
+            MULTI_BUDGET='20'
             MC='100000'
           fi
-          python scripts/daily_pushplus.py --games "$GAMES" --mode "$MODE" --bets "$BETS" --budget "$BUDGET" --mc "$MC"
+          python scripts/daily_pushplus.py \
+            --games "$GAMES" \
+            --single-bets "$SINGLE_BETS" \
+            --multi-budget "$MULTI_BUDGET" \
+            --mc "$MC"
