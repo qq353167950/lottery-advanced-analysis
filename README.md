@@ -31,30 +31,34 @@ python scripts/selftest.py
 
 ## 🤖 GitHub Actions 自动推送
 
-仓库内置每日自动推荐流程：
+仓库内置按中国大陆开奖日自动运行的推荐流程：
 
 - 工作流：`.github/workflows/daily-recommend.yml`
-- 默认时间：每天 `00:30 UTC`
-- 默认内容：大乐透和双色球各生成 1 注单式推荐
-- 支持：GitHub Actions 页面手动触发
+- 默认时间：每天北京时间 `08:30`
+- `games=auto`：只分析当天开奖的彩种；无开奖日则跳过推送
+- 默认模式：当天彩种生成 **5 注正常单式**，合计 10 元
+- `mode=multi`：预算模式，严格检查总金额不超过预算
+- `mode=mixed`：复式 + 单式混合，严格检查总金额不超过预算
 
-### 配置 PushPlus
+### 开奖日规则
+
+- 大乐透：周一、周三、周六
+- 双色球：周二、周四、周日
+
+如遇官方节假日调整，可在 Actions 页面手动触发，并把 `games` 改成 `DLT` 或 `SSQ`。
+
+### PushPlus Secrets
 
 在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 中添加：
 
 - `PUSHPLUS_TOKEN`：必填，PushPlus 用户 token 或消息 token
 - `PUSHPLUS_TOPIC`：可选，群组 topic
-- `PUSHPLUS_CHANNEL`：可选，指定 PushPlus 渠道
+- `PUSHPLUS_CHANNEL`：可选，指定渠道
 
-未配置 `PUSHPLUS_TOKEN` 时，Action 会因为无法发送通知而失败；token 只通过 GitHub Secret 注入，不写入代码。
+token 只通过 GitHub Secret 注入，不写入代码、不提交到仓库。
 
-### 手动调整
+### 预算模式说明
 
-手动触发 workflow 时可以选择：
-
-- `games=DLT` 或 `games=SSQ`
-- `mode=single`、`mode=multi` 或 `mode=dantuo`
-- `bets`：单式注数或复式组数
-- `mc`：蒙特卡洛模拟次数
-
-要更改每天的执行时间，修改 workflow 中的 cron 表达式。GitHub Actions 的定时表达式默认按 UTC 执行。
+- 大乐透 `multi`：使用一组 `6+2` 和一组 `5+3` 混合复式，共 18 元。
+- 双色球 `multi`：由于最小 `7+1` 复式就是 14 元，两组真复式无法控制在 20 元内，因此自动回退为 `7+1` 复式 + 3 注单式，共 20 元。
+- 所有模式在发送前都会再次检查总金额，超过预算会直接失败，不发送通知。

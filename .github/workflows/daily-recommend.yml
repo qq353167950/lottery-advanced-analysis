@@ -6,19 +6,23 @@ on:
   workflow_dispatch:
     inputs:
       games:
-        description: 'Comma-separated games (DLT, SSQ, or both)'
+        description: 'auto 或 DLT / SSQ / DLT,SSQ'
         required: false
-        default: 'DLT,SSQ'
+        default: 'auto'
       mode:
-        description: 'Recommendation mode: single, multi, dantuo'
+        description: 'package=完整包；single=5注单式；multi=复式预算；mixed=混合预算'
         required: false
-        default: 'single'
+        default: 'package'
       bets:
-        description: 'Single bets or multi groups'
+        description: '单式注数，默认5；仅 single 模式使用'
         required: false
-        default: '1'
+        default: '5'
+      budget:
+        description: '总预算（元），默认20'
+        required: false
+        default: '20'
       mc:
-        description: 'Monte Carlo simulations'
+        description: '蒙特卡洛模拟次数'
         required: false
         default: '100000'
 
@@ -49,11 +53,13 @@ jobs:
             GAMES='${{ github.event.inputs.games }}'
             MODE='${{ github.event.inputs.mode }}'
             BETS='${{ github.event.inputs.bets }}'
+            BUDGET='${{ github.event.inputs.budget }}'
             MC='${{ github.event.inputs.mc }}'
           else
-            GAMES='DLT,SSQ'
-            MODE='single'
-            BETS='1'
+            GAMES='auto'
+            MODE='package'
+            BETS='5'
+            BUDGET='20'
             MC='100000'
           fi
-          python scripts/daily_pushplus.py --games "$GAMES" --mode "$MODE" --bets "$BETS" --mc "$MC"
+          python scripts/daily_pushplus.py --games "$GAMES" --mode "$MODE" --bets "$BETS" --budget "$BUDGET" --mc "$MC"
