@@ -2,8 +2,8 @@ name: daily-lottery-recommend
 
 on:
   schedule:
-    # 08:30 Asia/Shanghai. GitHub cron uses UTC.
-    - cron: '30 0 * * *'
+    # 12:30 Asia/Shanghai. GitHub cron uses UTC.
+    - cron: '30 4 * * *'
   workflow_dispatch:
     inputs:
       games:

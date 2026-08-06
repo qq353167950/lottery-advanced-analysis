@@ -163,7 +163,7 @@ def build_recommendation_package(game: str, single_bets: int, multi_budget: int,
     multi_total = sum(item["金额"] for item in multi_items)
     if multi_total > multi_budget:
         raise RuntimeError(f"{game} 复式金额 {multi_total} 元超过限制 {multi_budget} 元")
-    return singles, multi_items, single_total, multi_total, note
+    return singles, multi_items, single_total, multi_total, note, single_result
 
 
 def render_section(lines: list[str], title: str, items: list[dict], total: int, suffix: str) -> None:
@@ -173,13 +173,19 @@ def render_section(lines: list[str], title: str, items: list[dict], total: int, 
         lines.append(f"<p><b>{item['类型']}</b>：{item['号码']}<br>金额：{item['金额']}元{desc}</p>")
 
 
-def build_html(game: str, singles: list[dict], multi_items: list[dict], single_total: int, multi_total: int, multi_budget: int, note: str) -> str:
+def build_html(game: str, result: dict, singles: list[dict], multi_items: list[dict], single_total: int, multi_total: int, multi_budget: int, note: str) -> str:
     title = "大乐透" if game == "DLT" else "双色球"
     lines = [
         "<html><body>",
         f"<h2>{title} 今日推荐</h2>",
         f"<p>北京时间：{datetime.now(TZ):%Y-%m-%d %H:%M}<br>当天开奖彩种：{title}</p>",
     ]
+    # 上期开奖
+    last = result.get("上期开奖", {})
+    last_main = " ".join(last.get("主区", []))
+    last_sub = " ".join(last.get("副区", []))
+    last_text = f"{last_main} + {last_sub}" if last_sub else last_main
+    lines.append(f"<p>上期开奖：<b>{last_text}</b></p>")
     render_section(lines, "默认正常5注", singles, single_total, "，不计入复式预算")
     render_section(lines, "2组复式", multi_items, multi_total, f" / 限制{multi_budget}元")
     lines.append(f"<p>{note}</p>")
@@ -234,10 +240,10 @@ def main() -> int:
 
     for game in games:
         print(f"[info] processing {game}")
-        singles, multi_items, single_total, multi_total, note = build_recommendation_package(
+        singles, multi_items, single_total, multi_total, note, single_result = build_recommendation_package(
             game, args.single_bets, args.multi_budget, args.mc
         )
-        content = build_html(game, singles, multi_items, single_total, multi_total, args.multi_budget, note)
+        content = build_html(game, single_result, singles, multi_items, single_total, multi_total, args.multi_budget, note)
         if args.dry_run:
             print(content)
             continue
