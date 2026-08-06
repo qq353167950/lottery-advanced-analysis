@@ -1,0 +1,59 @@
+name: daily-lottery-recommend
+
+on:
+  schedule:
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      games:
+        description: 'Comma-separated games (DLT, SSQ, or both)'
+        required: false
+        default: 'DLT,SSQ'
+      mode:
+        description: 'Recommendation mode: single, multi, dantuo'
+        required: false
+        default: 'single'
+      bets:
+        description: 'Single bets or multi groups'
+        required: false
+        default: '1'
+      mc:
+        description: 'Monte Carlo simulations'
+        required: false
+        default: '100000'
+
+permissions:
+  contents: read
+
+jobs:
+  recommend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run recommendation and send PushPlus
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
+          PUSHPLUS_CHANNEL: ${{ secrets.PUSHPLUS_CHANNEL }}
+          PUSHPLUS_TEMPLATE: html
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            GAMES='${{ github.event.inputs.games }}'
+            MODE='${{ github.event.inputs.mode }}'
+            BETS='${{ github.event.inputs.bets }}'
+            MC='${{ github.event.inputs.mc }}'
+          else
+            GAMES='DLT,SSQ'
+            MODE='single'
+            BETS='1'
+            MC='100000'
+          fi
+          python scripts/daily_pushplus.py --games "$GAMES" --mode "$MODE" --bets "$BETS" --mc "$MC"
