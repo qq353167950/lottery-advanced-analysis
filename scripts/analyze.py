@@ -552,7 +552,12 @@ def hard_filter_main(main, last_main, p):
 
 def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
                           n_bets, seed=None):
-    """融合打分 → Top池 → 组合生成 → 硬过滤 → 排序去重。"""
+    """融合打分 → Top池 → 组合生成 → 硬过滤 → 策略分化加权采样。
+
+    每注采用不同模型视角选号（策略分化），并在对应策略的 Top 1/3
+    通过组合中做加权随机采样（而非贪心取最高分），使同数据下每次
+    推荐仍有变化，同时保持统计筛选的完整性。
+    """
     rng = random.Random(seed)
 
     def norm(d):
@@ -584,9 +589,6 @@ def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
         all_main = rng.sample(all_main, 60000)
     passed = [c for c in all_main if hard_filter_main(list(c), base["last_main"], p)]
 
-    scored = sorted(passed,
-                    key=lambda c: -sum(fused_main[x] for x in c))
-
     # 副区组合
     if p["sub_pick"] == 2:
         sub_combos = sorted(itertools.combinations(sorted(sub_pool), 2),
@@ -597,22 +599,65 @@ def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
     else:
         sub_combos = [(x,) for x in sub_pool]
 
+    # ---- 五种策略权重：每注用不同模型视角选号 ----
+    # 策略1: 综合最高分
+    strat1 = dict(fused_main)
+    # 策略2: 遗漏回补（遗漏强度 S_i）
+    strat2_raw = {}
+    for num in fused_main:
+        st = base["main_omission"][num]
+        o, omax, oavg = st["cur"], st["max"], st["avg"]
+        s_i = (o / oavg) * (1 - math.exp(-o / omax)) if oavg > 0 and omax > 0 else 0.0
+        strat2_raw[num] = s_i
+    strat2 = norm(strat2_raw) if max(strat2_raw.values()) > 0 else dict(fused_main)
+    # 策略3: 贝叶斯后验
+    strat3 = norm(bayes_main)
+    # 策略4: 逆向爆冷（偏好低分冷号）
+    strat4 = {k: 1.0 - v for k, v in fused_main.items()}
+    # 策略5: 蒙特卡洛高频
+    if mfreq:
+        mc_max = max(mfreq.values()) if mfreq else 1
+        strat5 = {num: mfreq.get(num, 0) / mc_max for num in fused_main} if mc_max > 0 else dict(fused_main)
+    else:
+        strat5 = dict(fused_main)
+
+    strategies = [
+        ("综合最高分", strat1),
+        ("遗漏回补", strat2),
+        ("贝叶斯后验", strat3),
+        ("逆向爆冷", strat4),
+        ("蒙特卡洛", strat5),
+    ]
+
+    # ---- 加权采样：每注按对应策略从 Top 1/3 中加权随机抽取 ----
     recs, used = [], []
-    si = 0
-    for c in scored:
-        if len(recs) >= n_bets:
+    for i in range(n_bets):
+        strat_name, strat_w = strategies[i % len(strategies)]
+        # 按策略分排序
+        scored = sorted(passed, key=lambda c: -sum(strat_w[x] for x in c))
+        # 取 Top 1/3 作为采样池（至少 15 个）
+        k = max(15, len(scored) // 3)
+        top = scored[:k]
+        # 去重：与已选组合主区重叠 ≤ main_pick-2
+        available = [c for c in top
+                     if not any(len(set(c) & set(u)) > p["main_pick"] - 2 for u in used)]
+        if not available:
+            available = [c for c in scored
+                         if not any(len(set(c) & set(u)) > p["main_pick"] - 2 for u in used)]
+        if not available:
             break
-        # 注间去重：与已选组合主区重叠 ≤ main_pick-2
-        if any(len(set(c) & set(u)) > p["main_pick"] - 2 for u in used):
-            continue
-        sub = sub_combos[si % len(sub_combos)]
-        si += 1
+        # 加权采样：策略分高的被选中概率大，但不保证取最高
+        ws = [max(sum(strat_w[x] for x in c), 0.01) for c in available]
+        c = rng.choices(available, weights=ws, k=1)[0]
+
+        sub = sub_combos[i % len(sub_combos)]
         raw = (sum(fused_main[x] for x in c) / p["main_pick"] * 70
                + sum(fused_sub[x] for x in sub) / p["sub_pick"] * 30)
         recs.append({
             "主区": [f"{x:02d}" for x in c],
             "副区": [f"{x:02d}" for x in sub],
             "综合分": round(raw, 1),
+            "策略": strat_name,
             "和值": sum(c), "跨度": max(c) - min(c),
             "AC": ac_value(c, p["ac_offset"]),
             "奇偶": ":".join(map(str, odd_even(c))),
