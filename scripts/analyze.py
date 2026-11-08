@@ -550,6 +550,27 @@ def hard_filter_main(main, last_main, p):
     return True
 
 
+def weighted_order(scores, rng, temp=0.35):
+    """按分数加权的随机排序：高分大概率靠前，但每次运行顺序不同。
+
+    使用 Efraimidis-Spirakis 加权无放回抽样，权重 = exp(归一化分 / temp)。
+    rng 为 None 时退化为按分数降序（旧行为）。
+    """
+    items = list(scores.items())
+    if rng is None:
+        return [k for k, _ in sorted(items, key=lambda kv: -kv[1])]
+    vals = [v for _, v in items]
+    lo, hi = min(vals), max(vals)
+    r = hi - lo if hi > lo else 1.0
+    keyed = []
+    for k, v in items:
+        w = math.exp(((v - lo) / r) / temp)
+        u = rng.random() or 1e-12
+        keyed.append((math.log(u) / w, k))
+    keyed.sort(reverse=True)
+    return [k for _, k in keyed]
+
+
 def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
                           n_bets, seed=None):
     """融合打分 → Top池 → 组合生成 → 硬过滤 → 策略分化加权采样。
@@ -650,7 +671,9 @@ def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
         ws = [max(sum(strat_w[x] for x in c), 0.01) for c in available]
         c = rng.choices(available, weights=ws, k=1)[0]
 
-        sub = sub_combos[i % len(sub_combos)]
+        # 副区：按副区融合分加权随机抽取（避免每期按固定顺序给同一组蓝球/后区）
+        sub_ws = [max(sum(fused_sub[x] for x in sc), 0.01) for sc in sub_combos]
+        sub = rng.choices(sub_combos, weights=sub_ws, k=1)[0]
         raw = (sum(fused_main[x] for x in c) / p["main_pick"] * 70
                + sum(fused_sub[x] for x in sub) / p["sub_pick"] * 30)
         recs.append({
@@ -677,14 +700,14 @@ def build_recommendations(base, bayes_main, bayes_sub, mfreq, sfreq, p, game,
     }
 
 
-def build_multi(fused_main, fused_sub, base, p, m_count, s_count):
+def build_multi(fused_main, fused_sub, base, p, m_count, s_count, rng=None):
     """复式推荐：主区选 m_count 个、副区选 s_count 个。
 
     选号策略：按融合分排序取Top，但主区强制三区均衡（每区至少1个）、
     奇偶不极端（奇或偶占比不超过75%），保证复式覆盖面。
     """
     mlo, mhi = p["main_range"]
-    ranked = [n for n, _ in sorted(fused_main.items(), key=lambda kv: -kv[1])]
+    ranked = weighted_order(fused_main, rng)
 
     picked = []
     zone_of = {n: next(i for i, (lo, hi) in enumerate(p["zones"]) if lo <= n <= hi)
@@ -714,7 +737,7 @@ def build_multi(fused_main, fused_sub, base, p, m_count, s_count):
         if n not in picked:
             picked.append(n)
 
-    sub_ranked = [n for n, _ in sorted(fused_sub.items(), key=lambda kv: -kv[1])]
+    sub_ranked = weighted_order(fused_sub, rng)
     sub_picked = sub_ranked[:s_count]
 
     n_combo = (math.comb(m_count, p["main_pick"])
@@ -733,14 +756,14 @@ def build_multi(fused_main, fused_sub, base, p, m_count, s_count):
     }
 
 
-def build_multi_groups(fused_main, fused_sub, base, p, m_count, s_count, n_groups):
+def build_multi_groups(fused_main, fused_sub, base, p, m_count, s_count, n_groups, rng=None):
     """生成 n_groups 组复式。后续组对已用号码施加分数惩罚，保证组间差异化。"""
     groups = []
     m_used, s_used = Counter(), Counter()
     for _ in range(n_groups):
         adj_main = {k: v - 0.35 * m_used[k] for k, v in fused_main.items()}
         adj_sub = {k: v - 0.35 * s_used[k] for k, v in fused_sub.items()}
-        g = build_multi(adj_main, adj_sub, base, p, m_count, s_count)
+        g = build_multi(adj_main, adj_sub, base, p, m_count, s_count, rng)
         groups.append(g)
         for x in g["主区"]:
             m_used[int(x)] += 1
@@ -972,7 +995,8 @@ def main():
         rec_result.pop("推荐组合", None)
         result.update(rec_result)
         result["复式推荐"] = build_multi_groups(fused_main, fused_sub, base, p,
-                                            multi_spec[0], multi_spec[1], n_bets)
+                                            multi_spec[0], multi_spec[1], n_bets,
+                                            random.Random(args.seed))
     elif dantuo_spec:
         # 胆拖模式：不输出单式推荐
         rec_result.pop("推荐组合", None)
