@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import subprocess
 import sys
 import tempfile
@@ -108,9 +109,18 @@ def single_items(result: dict, count: int) -> list[dict]:
     return items
 
 
+def pick_subs(rec: dict, pool: list[str], k: int) -> list[str]:
+    """副区复式号：先用该注自带副区号，再从副区 Top 池随机补足，保证每期不同。"""
+    picked = list(dict.fromkeys(rec.get("副区", [])))[:k]
+    rest = [x for x in pool if x not in picked]
+    random.shuffle(rest)
+    picked += rest[:k - len(picked)]
+    return sorted(picked)
+
+
 def dlt_5_plus_3(result: dict) -> dict:
     rec = result["推荐组合"][0]
-    back = result["副区Top池"][:3]
+    back = pick_subs(rec, result["副区Top池"], 3)
     return {
         "类型": "5+3复式",
         "号码": " ".join(rec["主区"]) + " + " + " ".join(back),
@@ -121,7 +131,7 @@ def dlt_5_plus_3(result: dict) -> dict:
 
 def ssq_6_plus_2(result: dict) -> dict:
     rec = result["推荐组合"][0]
-    blues = result["副区Top池"][:2]
+    blues = pick_subs(rec, result["副区Top池"], 2)
     return {
         "类型": "6+2复式",
         "号码": " ".join(rec["主区"]) + " + " + " ".join(blues),
